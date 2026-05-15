@@ -19,3 +19,4 @@ A small React single-page app for playing Tic Tac Toe.
 - X and O turns
 - Winner and draw detection
 - Reset button
+- Added README notes for project usage.
