@@ -1,0 +1,32 @@
+#!/bin/sh
+. "$(dirname "$0")/_/husky.sh"
+
+# Validate commit message follows conventional commits format
+# Allowed prefixes: feat, fix, docs, style, refactor, perf, test, chore, ci
+
+COMMIT_MSG_FILE=$1
+COMMIT_MSG=$(cat "$COMMIT_MSG_FILE")
+
+# Check if commit message matches conventional commits pattern
+if ! echo "$COMMIT_MSG" | grep -qE '^(feat|fix|docs|style|refactor|perf|test|chore|ci)(\(.+\))?!?: .+'; then
+  echo "❌ Commit message does not follow Conventional Commits format."
+  echo ""
+  echo "Valid formats:"
+  echo "  feat: add new feature"
+  echo "  fix: resolve bug"
+  echo "  docs: update documentation"
+  echo "  style: formatting changes"
+  echo "  refactor: code restructuring"
+  echo "  perf: performance improvements"
+  echo "  test: add/update tests"
+  echo "  chore: maintenance tasks"
+  echo "  ci: CI/CD configuration changes"
+  echo ""
+  echo "With optional scope:"
+  echo "  feat(scope): description"
+  echo ""
+  echo "Current message: $COMMIT_MSG"
+  exit 1
+fi
+
+echo "✅ Commit message format valid."

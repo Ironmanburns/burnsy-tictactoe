@@ -1,0 +1,173 @@
+name: CI/CD Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment label'
+        required: true
+        default: 'staging'
+      kube_namespace:
+        description: 'Kubernetes namespace to deploy into'
+        required: true
+        default: 'default'
+      kube_context:
+        description: 'Kubernetes context name (optional)'
+        required: false
+        default: ''
+      image_name:
+        description: 'Docker image name including registry'
+        required: true
+        default: 'ghcr.io/OWNER/jbtictactoe'
+      image_tag:
+        description: 'Docker image tag'
+        required: true
+        default: 'latest'
+      deploy:
+        description: 'Whether to deploy after the build/scan'
+        required: true
+        default: 'yes'
+        type: choice
+        options:
+          - yes
+          - no
+      push_image:
+        description: 'Whether to push the built image to the registry'
+        required: true
+        default: 'no'
+        type: choice
+        options:
+          - yes
+          - no
+
+jobs:
+  lint-build-scan:
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.set-image.outputs.image }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run lint
+        run: npm run lint
+
+      - name: Run SAST scan
+        run: npm audit --audit-level=high
+
+      - name: Run unit tests
+        run: npm run test -- --run
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps
+
+      - name: Run Playwright tests
+        run: npm run test:e2e
+
+      - name: Build production bundle
+        run: npm run build
+
+      - name: Set image name
+        id: set-image
+        run: echo "IMAGE=${{ github.event.inputs.image_name }}:${{ github.event.inputs.image_tag }}" >> $GITHUB_OUTPUT
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to registry if pushing
+        if: ${{ github.event.inputs.push_image == 'yes' }}
+        run: |
+          registry="${{ github.event.inputs.image_name }}"
+          registry="${registry%%/*}"
+          echo "${{ secrets.REGISTRY_PASSWORD }}" | docker login "$registry" --username "${{ secrets.REGISTRY_USERNAME }}" --password-stdin
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: ${{ github.event.inputs.push_image == 'yes' }}
+          load: ${{ github.event.inputs.push_image != 'yes' }}
+          tags: ${{ github.event.inputs.image_name }}:${{ github.event.inputs.image_tag }}
+
+      - name: Scan Docker image for vulnerabilities
+        uses: aquasecurity/trivy-action@v0.11.0
+        with:
+          image-ref: ${{ github.event.inputs.image_name }}:${{ github.event.inputs.image_tag }}
+          format: table
+          severity: CRITICAL,HIGH,MEDIUM
+
+  deploy:
+    needs: lint-build-scan
+    if: ${{ github.event.inputs.deploy == 'yes' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'latest'
+
+      - name: Configure Kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          if echo "${{ secrets.KUBE_CONFIG_DATA }}" | grep -q '^apiVersion:'; then
+            echo "${{ secrets.KUBE_CONFIG_DATA }}" > ~/.kube/config
+          else
+            echo "${{ secrets.KUBE_CONFIG_DATA }}" | base64 --decode > ~/.kube/config
+          fi
+          chmod 600 ~/.kube/config
+
+      - name: Select Kubernetes context
+        if: ${{ github.event.inputs.kube_context != '' }}
+        run: kubectl config use-context "${{ github.event.inputs.kube_context }}"
+
+      - name: Deploy to Kubernetes namespace
+        run: |
+          kubectl create namespace "${{ github.event.inputs.kube_namespace }}" --dry-run=client -o yaml | kubectl apply -f -
+          cat <<EOF | kubectl apply -f -
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tictactoe-app
+  namespace: ${{ github.event.inputs.kube_namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tictactoe-app
+  template:
+    metadata:
+      labels:
+        app: tictactoe-app
+    spec:
+      containers:
+        - name: tictactoe-app
+          image: ${{ github.event.inputs.image_name }}:${{ github.event.inputs.image_tag }}
+          ports:
+            - containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tictactoe-service
+  namespace: ${{ github.event.inputs.kube_namespace }}
+spec:
+  type: ClusterIP
+  selector:
+    app: tictactoe-app
+  ports:
+    - port: 80
+      targetPort: 80
+EOF
+          kubectl rollout status deployment/tictactoe-app -n "${{ github.event.inputs.kube_namespace }}" --timeout=2m

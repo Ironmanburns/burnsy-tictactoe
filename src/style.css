@@ -1,7 +1,7 @@
 :root {
-  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  background: #0f172a;
-  color: #e2e8f0;
+  font-family: 'Orbitron', 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: radial-gradient(circle at top, #0c0528 0%, #08101f 40%, #05060f 100%);
+  color: #f8f4ff;
 }
 
 body {
@@ -10,16 +10,40 @@ body {
   display: flex;
   justify-content: center;
   align-items: center;
-  background: radial-gradient(circle at top, #475569 0%, #0f172a 40%);
+  background: radial-gradient(circle at 20% 10%, rgba(112, 57, 255, 0.24), transparent 24%),
+    radial-gradient(circle at 80% 14%, rgba(0, 229, 255, 0.2), transparent 24%),
+    radial-gradient(circle at 50% 90%, rgba(255, 71, 71, 0.16), transparent 18%),
+    linear-gradient(180deg, #0d0621 0%, #05060f 100%);
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.18) 1px, transparent 1px);
+  background-size: 120px 120px;
+  opacity: 0.28;
+  pointer-events: none;
 }
 
 .app-shell {
-  width: min(480px, calc(100vw - 32px));
-  padding: 28px;
-  border-radius: 24px;
-  background: rgba(15, 23, 42, 0.92);
-  box-shadow: 0 24px 80px rgba(15, 23, 42, 0.35);
-  border: 1px solid rgba(148, 163, 184, 0.18);
+  width: min(520px, calc(100vw - 32px));
+  padding: 32px;
+  border-radius: 28px;
+  background: rgba(10, 8, 28, 0.92);
+  border: 1px solid rgba(109, 33, 255, 0.24);
+  box-shadow: 0 24px 80px rgba(79, 36, 155, 0.35);
+  backdrop-filter: blur(12px);
+  position: relative;
+  overflow: hidden;
+}
+
+.app-shell::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(102, 45, 255, 0.15), transparent 30%, rgba(11, 12, 30, 0.95) 65%);
+  pointer-events: none;
 }
 
 .title-bar {
@@ -27,61 +51,116 @@ body {
   justify-content: space-between;
   align-items: center;
   gap: 16px;
-  margin-bottom: 18px;
+  margin-bottom: 24px;
+  position: relative;
+  z-index: 1;
 }
 
 .title-bar h1 {
   margin: 0;
-  font-size: clamp(1.8rem, 2.5vw, 2.4rem);
+  font-size: clamp(2rem, 3vw, 2.8rem);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #e9d7ff;
+  text-shadow: 0 0 14px rgba(183, 115, 255, 0.45);
 }
 
 .title-bar button,
 .square {
   border: none;
-  border-radius: 12px;
+  border-radius: 16px;
   font: inherit;
   cursor: pointer;
-  transition: transform 0.12s ease, background 0.12s ease;
+  transition: transform 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
 }
 
 .title-bar button {
-  padding: 12px 16px;
-  background: #2563eb;
-  color: white;
+  padding: 14px 18px;
+  background: linear-gradient(135deg, #7c3aed, #22d3ee);
+  color: #050816;
+  font-weight: 700;
+  box-shadow: 0 0 22px rgba(34, 211, 238, 0.32);
 }
 
 .title-bar button:hover {
-  transform: translateY(-1px);
+  transform: translateY(-2px);
+  box-shadow: 0 0 26px rgba(34, 211, 238, 0.45);
 }
 
 .status {
-  margin: 0 0 20px;
-  font-size: 1rem;
+  margin: 0 0 28px;
+  padding: 18px 24px;
+  font-size: clamp(1.4rem, 4vw, 2.2rem);
+  font-weight: 900;
   text-align: center;
-  color: #f8fafc;
+  color: #00e5ff;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-shadow: 0 0 20px rgba(0, 229, 255, 0.6), 0 0 40px rgba(124, 58, 237, 0.4);
+  background: linear-gradient(135deg, rgba(0, 229, 255, 0.12), rgba(124, 58, 237, 0.12));
+  border: 2px solid rgba(0, 229, 255, 0.35);
+  border-radius: 14px;
+  position: relative;
+  z-index: 1;
+  box-shadow: 0 0 28px rgba(0, 229, 255, 0.25), inset 0 0 14px rgba(0, 229, 255, 0.08);
 }
 
 .board {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
+  gap: 14px;
+  position: relative;
+  z-index: 1;
+}
+
+.board::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 1px dashed rgba(255, 255, 255, 0.1);
+  mix-blend-mode: screen;
+  pointer-events: none;
 }
 
 .square {
   aspect-ratio: 1 / 1;
-  min-height: 90px;
-  background: rgba(71, 85, 105, 0.16);
-  color: #f8fafc;
-  font-size: 2rem;
-  font-weight: 700;
+  min-height: 100px;
+  background: rgba(24, 12, 49, 0.9);
+  color: #f8f4ff;
+  font-size: 2.4rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  box-shadow: inset 0 0 0 1px rgba(163, 63, 255, 0.18),
+    0 16px 35px rgba(33, 17, 70, 0.36);
 }
 
 .square:hover {
-  background: rgba(71, 85, 105, 0.4);
+  background: rgba(80, 26, 189, 0.92);
+  box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.22),
+    0 16px 40px rgba(56, 31, 121, 0.55);
+}
+
+.square--winning {
+  background: linear-gradient(135deg, rgba(255, 115, 255, 0.98), rgba(0, 229, 255, 0.92));
+  color: #050816;
+  box-shadow: 0 0 0 4px rgba(0, 229, 255, 0.25),
+    0 0 24px rgba(255, 115, 255, 0.35);
 }
 
 .instructions {
-  margin: 20px 0 0;
+  margin: 22px 0 0;
   text-align: center;
-  color: #94a3b8;
+  color: #b8a7ff;
+  letter-spacing: 0.08em;
+}
+
+@media (max-width: 520px) {
+  .app-shell {
+    padding: 24px;
+  }
+
+  .square {
+    min-height: 84px;
+    font-size: 2rem;
+  }
 }

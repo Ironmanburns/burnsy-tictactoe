@@ -1,0 +1,10 @@
+node_modules
+npm-debug.log*
+dist
+.git
+.gitignore
+.vscode
+tests
+test-results
+playwright.config.js
+.github

@@ -1,0 +1,20 @@
+service:
+  name: JB Tic Tac Toe Service
+  identifier: JB_TicTacToe_Service
+  projectIdentifier: default
+  orgIdentifier: default
+  tags: {}
+  serviceDefinition:
+    type: Kubernetes
+    spec:
+      manifests:
+        - manifest:
+            identifier: tictactoe-manifests
+            type: K8sManifest
+            spec:
+              store:
+                type: Harness
+                spec:
+                  files:
+                    - k8s/deployment.yaml
+                    - k8s/service.yaml

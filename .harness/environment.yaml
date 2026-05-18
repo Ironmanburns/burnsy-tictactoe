@@ -1,0 +1,7 @@
+environment:
+  name: JB Tic Tac Toe Environment
+  identifier: default
+  projectIdentifier: default
+  orgIdentifier: default
+  type: PreProduction
+  description: Environment used by the Harness CD stage for Kubernetes deployments.

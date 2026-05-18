@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tictactoe-app
+  labels:
+    app: tictactoe-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tictactoe-app
+  template:
+    metadata:
+      labels:
+        app: tictactoe-app
+    spec:
+      securityContext:
+        fsGroup: 101
+      containers:
+        - name: tictactoe-app
+          image: ghcr.io/OWNER/jbtictactoe:latest
+          ports:
+            - containerPort: 80
+          resources:
+            limits:
+              cpu: 250m
+              memory: 256Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 101
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 2
