@@ -1,0 +1,23 @@
+name: Claude issue assistant
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  claude:
+    # Only run when a comment contains @claude
+    # and the author is a repo collaborator or owner (prevents abuse from external users)
+    if: |
+      contains(github.event.comment.body, '@claude') &&
+      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: anthropics/claude-code-action@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
