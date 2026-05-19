@@ -39,6 +39,16 @@ describe('calculateWinner', () => {
     expect(calculateWinner(board)).toEqual({ player: 'X', line: [2, 4, 6] })
   })
 
+  it('detects a horizontal X win in bottom row', () => {
+    const board = [null, null, null, null, null, null, 'X', 'X', 'X']
+    expect(calculateWinner(board)).toEqual({ player: 'X', line: [6, 7, 8] })
+  })
+
+  it('detects a vertical O win in right column', () => {
+    const board = [null, null, 'O', null, null, 'O', null, null, 'O']
+    expect(calculateWinner(board)).toEqual({ player: 'O', line: [2, 5, 8] })
+  })
+
   it('returns null for a full draw board with no winning line', () => {
     const board = ['X', 'O', 'X', 'X', 'O', 'O', 'O', 'X', 'X']
     expect(calculateWinner(board)).toBeNull()
