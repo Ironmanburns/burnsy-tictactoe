@@ -53,8 +53,8 @@ npm run dev              # Vite dev server at http://127.0.0.1:5173
 npm run build            # Production bundle → dist/
 npm run preview          # Preview production build locally
 npm run lint             # ESLint on src/**/*.{js,jsx}
-npm run test             # Vitest unit tests (single run, jsdom)
-npm run test:watch       # Vitest in watch mode
+npm run test             # Vitest unit tests (watch mode in TTY; use `npm run test -- --run` for a single run)
+npm run test:watch       # Vitest in explicit watch mode
 npm run test:e2e         # Playwright E2E (headless Chromium)
 npm run test:e2e:headed  # Playwright E2E (visible browser)
 ```
@@ -84,7 +84,7 @@ The Playwright config auto-starts the dev server (`npm run dev`) before E2E test
 ### Accessibility requirements
 
 Every interactive element must have:
-- `aria-label` describing its purpose
+- `aria-label` describing its purpose **only if it lacks descriptive visible text** (e.g., icon-only buttons); buttons with clear visible labels like "Reset" do not need one
 - `aria-pressed` for toggle-style buttons
 - Keyboard handler for `Enter` and `Space` (not just `onClick`)
 - Correct `disabled` attribute when the action is unavailable
@@ -144,7 +144,7 @@ Triggered manually (`workflow_dispatch`) with inputs for environment, image tag,
 **Job: lint-build-scan** (always runs):
 1. `npm ci`
 2. `npm run lint`
-3. `npm audit --audit-level=high`
+3. `npm audit --audit-level=high` (blocking in CI)
 4. `npm run test -- --run`
 5. Playwright E2E tests
 6. `npm run build`
@@ -190,7 +190,7 @@ All of the following must pass before a change is mergeable:
 |------|---------|--------|
 | ESLint | `npm run lint` | Pre-commit, CI |
 | Unit tests (100% coverage) | `npm run test` | Pre-commit, CI |
-| npm audit (high+) | `npm audit --audit-level=high` | Pre-commit, CI |
+| npm audit | Pre-commit: `--audit-level=moderate --production` (non-blocking) / CI: `--audit-level=high` (blocking) | CI |
 | E2E tests | `npm run test:e2e` | CI |
 | Docker build | CI only | CI |
 | Trivy scan | CI only | CI |
