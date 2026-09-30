@@ -45,7 +45,7 @@ pipeline:
                   identifier: Build_and_Push
                   spec:
                     connectorRef: local_zot
-                    repo: <+pipeline.variables.imageRepo>
+                    repo: zot.harness-ci.svc.cluster.local:5000/<+pipeline.variables.imageRepo>
                     tags:
                       - <+pipeline.variables.imageTag>
                       - <+codebase.commitSha>
