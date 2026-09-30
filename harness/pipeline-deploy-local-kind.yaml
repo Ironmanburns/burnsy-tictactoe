@@ -40,18 +40,28 @@ pipeline:
           execution:
             steps:
               - step:
-                  type: BuildAndPushDockerRegistry
+                  type: Run
                   name: Build and Push
                   identifier: Build_and_Push
                   spec:
-                    connectorRef: local_zot
-                    repo: zot.harness-ci.svc.cluster.local:5000/<+pipeline.variables.imageRepo>
-                    tags:
-                      - <+pipeline.variables.imageTag>
-                      - <+codebase.commitSha>
-                    dockerfile: Dockerfile
-                    context: .
-                    buildArgs: {}
+                    connectorRef: dockerhub_public
+                    image: gcr.io/kaniko-project/executor:v1.23.2-debug
+                    shell: Sh
+                    # Explicit Kaniko to local HTTP Zot (BuildAndPush was dropping the registry host).
+                    command: |-
+                      set -e
+                      REGISTRY="zot.harness-ci.svc.cluster.local:5000"
+                      REPO="<+pipeline.variables.imageRepo>"
+                      TAG="<+pipeline.variables.imageTag>"
+                      SHA="<+codebase.commitSha>"
+                      /kaniko/executor \
+                        --dockerfile=Dockerfile \
+                        --context=dir:///harness \
+                        --destination="${REGISTRY}/${REPO}:${TAG}" \
+                        --destination="${REGISTRY}/${REPO}:${SHA}" \
+                        --insecure \
+                        --skip-tls-verify \
+                        --snapshot-mode=redo
               - step:
                   type: Run
                   name: Trivy Image Scan
@@ -65,7 +75,7 @@ pipeline:
                       REGISTRY="zot.harness-ci.svc.cluster.local:5000"
                       REF="$REGISTRY/<+pipeline.variables.imageRepo>:<+pipeline.variables.imageTag>"
                       echo "Scanning $REF"
-                      trivy image --severity CRITICAL --exit-code 1 --no-progress --timeout 10m "$REF"
+                      trivy image --severity CRITICAL --exit-code 1 --no-progress --timeout 10m --insecure "$REF"
         failureStrategies:
           - onFailure:
               errors:
