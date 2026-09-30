@@ -40,28 +40,24 @@ pipeline:
           execution:
             steps:
               - step:
-                  type: Run
+                  type: BuildAndPushDockerRegistry
                   name: Build and Push
                   identifier: Build_and_Push
                   spec:
-                    connectorRef: dockerhub_public
-                    image: gcr.io/kaniko-project/executor:v1.23.2-debug
-                    shell: Sh
-                    # Explicit Kaniko to local HTTP Zot (BuildAndPush was dropping the registry host).
-                    command: |-
-                      set -e
-                      REGISTRY="zot.harness-ci.svc.cluster.local:5000"
-                      REPO="<+pipeline.variables.imageRepo>"
-                      TAG="<+pipeline.variables.imageTag>"
-                      SHA="<+codebase.commitSha>"
-                      /kaniko/executor \
-                        --dockerfile=Dockerfile \
-                        --context=dir:///harness \
-                        --destination="${REGISTRY}/${REPO}:${TAG}" \
-                        --destination="${REGISTRY}/${REPO}:${SHA}" \
-                        --insecure \
-                        --skip-tls-verify \
-                        --snapshot-mode=redo
+                    connectorRef: local_zot
+                    # Include registry host — Harness was otherwise targeting Docker Hub.
+                    repo: zot.harness-ci.svc.cluster.local:5000/<+pipeline.variables.imageRepo>
+                    tags:
+                      - <+pipeline.variables.imageTag>
+                      - <+codebase.commitSha>
+                    dockerfile: Dockerfile
+                    context: .
+                    buildArgs: {}
+                    envVariables:
+                      # kind/CI pods expose /product_uuid; Kaniko fails cleaning stage 0 without this.
+                      PLUGIN_IGNORE_PATH: /product_uuid
+                      PLUGIN_INSECURE: "true"
+                      PLUGIN_SKIP_TLS_VERIFY: "true"
               - step:
                   type: Run
                   name: Trivy Image Scan
