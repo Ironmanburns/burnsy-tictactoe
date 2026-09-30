@@ -37,23 +37,17 @@ export function ensureSessionId(game) {
 }
 
 export function reportMatchEvent(payload) {
+  // Use fetch (not sendBeacon): cross-origin sendBeacon with application/json
+  // often returns true but is dropped by CORS, so match counters never move.
   const body = JSON.stringify({
     ...payload,
     session_id: payload.session_id || ensureSessionId(payload.game),
   })
-  const url = `${cpuApiBase()}/v1/match-event`
-  try {
-    if (navigator.sendBeacon) {
-      const blob = new Blob([body], { type: 'application/json' })
-      if (navigator.sendBeacon(url, blob)) return Promise.resolve()
-    }
-  } catch {
-    // fall through to fetch
-  }
-  return fetch(url, {
+  return fetch(`${cpuApiBase()}/v1/match-event`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body,
     keepalive: true,
+    mode: 'cors',
   }).catch(() => {})
 }
