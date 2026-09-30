@@ -1,5 +1,12 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { requestCpuMove, reportMatchEvent, ensureSessionId } from './cpuClient'
+import {
+  ArcadeHud,
+  LeaderboardPanel,
+  NameEntry,
+  applyCpuRound,
+  createArcadeRun,
+} from './ArcadeRun'
 
 const lines = [
   [0, 1, 2],
@@ -40,15 +47,20 @@ function App() {
   const [vsCpu, setVsCpu] = useState(false)
   const [cpuThinking, setCpuThinking] = useState(false)
   const [cpuStatus, setCpuStatus] = useState('')
+  const [arcadeRun, setArcadeRun] = useState(createArcadeRun)
+  const [showNameEntry, setShowNameEntry] = useState(false)
+  const [lbRefresh, setLbRefresh] = useState(0)
   const matchStartedRef = useRef(false)
   const matchStartMsRef = useRef(Date.now())
   const finishedRef = useRef(false)
+  const arcadeScoredRef = useRef(false)
 
   const result = useMemo(() => calculateWinner(board), [board])
   const winner = result?.player
   const winningLine = result?.line ?? []
   const draw = !winner && board.every(Boolean)
   const status = useMemo(() => {
+    if (vsCpu && arcadeRun.gameOver) return 'GAME OVER'
     if (winner) {
       if (vsCpu && winner === CPU_PLAYER) return 'Winner: CPU'
       return `Winner: ${winner}`
@@ -56,7 +68,7 @@ function App() {
     if (draw) return 'Draw'
     if (vsCpu && !xIsNext) return cpuThinking ? 'CPU thinking…' : "CPU's turn"
     return `Next player: ${xIsNext ? 'X' : 'O'}`
-  }, [winner, draw, xIsNext, vsCpu, cpuThinking])
+  }, [winner, draw, xIsNext, vsCpu, cpuThinking, arcadeRun.gameOver])
 
   useEffect(() => {
     ensureSessionId('tictactoe')
@@ -65,11 +77,13 @@ function App() {
 
   const beginMatchIfNeeded = useCallback((nextVsCpu = vsCpu) => {
     if (matchStartedRef.current) return
+    if (nextVsCpu && arcadeRun.gameOver) return
     matchStartedRef.current = true
     finishedRef.current = false
+    arcadeScoredRef.current = false
     matchStartMsRef.current = Date.now()
     reportMatchEvent({ game: 'tictactoe', event: 'started', mode: modeLabel(nextVsCpu) })
-  }, [vsCpu])
+  }, [vsCpu, arcadeRun.gameOver])
 
   const finishMatch = useCallback((resultValue, nextVsCpu = vsCpu) => {
     if (finishedRef.current) return
@@ -81,6 +95,16 @@ function App() {
       result: resultValue,
       duration_ms: Date.now() - matchStartMsRef.current,
     })
+    if (nextVsCpu && !arcadeScoredRef.current) {
+      arcadeScoredRef.current = true
+      setArcadeRun((prev) => {
+        const next = applyCpuRound(prev, resultValue)
+        if (next.gameOver && next.bestStreak > 0) {
+          setShowNameEntry(true)
+        }
+        return next
+      })
+    }
   }, [vsCpu])
 
   useEffect(() => {
@@ -91,6 +115,7 @@ function App() {
   const handleClick = useCallback(
     (index) => {
       if (board[index] || winner || cpuThinking) return
+      if (vsCpu && arcadeRun.gameOver) return
       if (vsCpu && !xIsNext) return
       beginMatchIfNeeded()
       const nextBoard = board.slice()
@@ -98,11 +123,11 @@ function App() {
       setBoard(nextBoard)
       setXIsNext(!xIsNext)
     },
-    [board, winner, xIsNext, vsCpu, cpuThinking, beginMatchIfNeeded]
+    [board, winner, xIsNext, vsCpu, cpuThinking, beginMatchIfNeeded, arcadeRun.gameOver]
   )
 
   useEffect(() => {
-    if (!vsCpu || winner || draw || xIsNext) return undefined
+    if (!vsCpu || winner || draw || xIsNext || arcadeRun.gameOver) return undefined
 
     const controller = new AbortController()
     setCpuThinking(true)
@@ -136,7 +161,7 @@ function App() {
       controller.abort()
       clearTimeout(timer)
     }
-  }, [vsCpu, winner, draw, xIsNext, board, beginMatchIfNeeded])
+  }, [vsCpu, winner, draw, xIsNext, board, beginMatchIfNeeded, arcadeRun.gameOver])
 
   const handleKeyDown = useCallback(
     (e, index) => {
@@ -148,17 +173,26 @@ function App() {
     [handleClick]
   )
 
-  const resetGame = useCallback(() => {
+  const resetBoardOnly = useCallback(() => {
     setBoard(Array(9).fill(null))
     setXIsNext(true)
     setCpuThinking(false)
     setCpuStatus('')
     matchStartedRef.current = false
     finishedRef.current = false
+    arcadeScoredRef.current = false
     matchStartMsRef.current = Date.now()
   }, [])
 
-  const humanCanPlay = !winner && !draw && !cpuThinking && (!vsCpu || xIsNext)
+  const resetGame = useCallback(() => {
+    if (vsCpu && arcadeRun.gameOver && !showNameEntry) {
+      setArcadeRun(createArcadeRun())
+    }
+    resetBoardOnly()
+  }, [vsCpu, arcadeRun.gameOver, showNameEntry, resetBoardOnly])
+
+  const humanCanPlay =
+    !winner && !draw && !cpuThinking && (!vsCpu || xIsNext) && !(vsCpu && arcadeRun.gameOver)
 
   return (
     <div className="app-shell">
@@ -170,13 +204,18 @@ function App() {
             checked={vsCpu}
             onChange={(e) => {
               setVsCpu(e.target.checked)
-              resetGame()
+              setArcadeRun(createArcadeRun())
+              setShowNameEntry(false)
+              resetBoardOnly()
             }}
           />
           Play vs CPU
         </label>
-        <button onClick={resetGame}>Reset</button>
+        <button onClick={resetGame} disabled={vsCpu && showNameEntry}>
+          {vsCpu && (winner || draw) && !arcadeRun.gameOver ? 'Next Round' : 'Reset'}
+        </button>
       </div>
+      {vsCpu && <ArcadeHud run={arcadeRun} />}
       <p className="status">{status}</p>
       <div className="board" role="presentation">
         {board.map((value, index) => (
@@ -195,10 +234,34 @@ function App() {
       </div>
       <p className="instructions">
         {vsCpu
-          ? 'You are X. CPU plays O via the shared games-cpu System One service.'
+          ? 'You are X. 3 lives vs CPU — win streaks hit the leaderboard. Initials are 3 characters.'
           : 'Click a square to play. First player is X.'}
       </p>
       {cpuStatus && <p className="cpu-status">{cpuStatus}</p>}
+      {vsCpu && arcadeRun.gameOver && !showNameEntry && (
+        <button
+          className="insert-coin"
+          onClick={() => {
+            setArcadeRun(createArcadeRun())
+            resetBoardOnly()
+          }}
+        >
+          Insert Coin
+        </button>
+      )}
+      {showNameEntry && (
+        <NameEntry
+          game="tictactoe"
+          score={arcadeRun.bestStreak}
+          onDone={() => {
+            setShowNameEntry(false)
+            setLbRefresh((n) => n + 1)
+            setArcadeRun(createArcadeRun())
+            resetBoardOnly()
+          }}
+        />
+      )}
+      {vsCpu && <LeaderboardPanel game="tictactoe" refreshKey={lbRefresh} />}
     </div>
   )
 }
