@@ -1,0 +1,67 @@
+pipeline:
+  name: PR Teardown TicTacToe Local Kind
+  identifier: PR_Teardown_TicTacToe_Local_Kind
+  projectIdentifier: default_project
+  orgIdentifier: default
+  tags:
+    app: tictactoe
+    target: local-kind
+    purpose: pr-teardown
+  properties:
+    ci:
+      codebase:
+        connectorRef: account.Github
+        repoName: Ironmanburns/burnsy-tictactoe
+        build: <+input>
+  variables:
+    - name: appName
+      type: String
+      value: tictactoe
+  stages:
+    - stage:
+        name: Teardown
+        identifier: Teardown
+        description: Remove ephemeral PR preview release and namespace
+        type: CI
+        spec:
+          cloneCodebase: false
+          infrastructure:
+            type: KubernetesDirect
+            spec:
+              connectorRef: local_kind_k8s
+              namespace: harness-ci
+              serviceAccountName: harness-games-preview
+              automountServiceAccountToken: true
+              nodeSelector: {}
+              os: Linux
+          execution:
+            steps:
+              - step:
+                  type: Run
+                  name: Helm Preview Teardown
+                  identifier: Helm_Preview_Teardown
+                  spec:
+                    connectorRef: dockerhub_public
+                    image: alpine/helm:3.16.3
+                    shell: Sh
+                    command: |-
+                      set -e
+                      apk add --no-cache kubectl >/dev/null
+                      APP="<+pipeline.variables.appName>"
+                      PR="<+trigger.prNumber>"
+                      NS="games-pr-${APP}-${PR}"
+                      RELEASE="${APP}-pr-${PR}"
+                      echo "Tearing down preview ${RELEASE} in ${NS}"
+                      if kubectl get namespace "${NS}" >/dev/null 2>&1; then
+                        helm uninstall "${RELEASE}" --namespace "${NS}" || true
+                        kubectl delete namespace "${NS}" --wait=true
+                        echo "Deleted namespace ${NS}"
+                      else
+                        echo "Namespace ${NS} already gone"
+                      fi
+        failureStrategies:
+          - onFailure:
+              errors:
+                - AllErrors
+              action:
+                type: Abort

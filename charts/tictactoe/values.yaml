@@ -7,6 +7,10 @@ service:
   type: NodePort
   port: 80
   nodePort: 30081
+ingress:
+  enabled: false
+  className: nginx
+  host: ""
 resources:
   requests:
     cpu: 50m
