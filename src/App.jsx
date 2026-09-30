@@ -1,5 +1,5 @@
-import { useState, useMemo, useCallback, useEffect } from 'react'
-import { requestCpuMove } from './cpuClient'
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
+import { requestCpuMove, reportMatchEvent, ensureSessionId } from './cpuClient'
 
 const lines = [
   [0, 1, 2],
@@ -24,12 +24,25 @@ function calculateWinner(board) {
   return null
 }
 
+function modeLabel(vsCpu) {
+  return vsCpu ? 'cpu' : 'pvp'
+}
+
+function resultLabel(winner, vsCpu) {
+  if (!winner) return 'draw'
+  if (vsCpu && winner === CPU_PLAYER) return 'cpu'
+  return winner.toLowerCase()
+}
+
 function App() {
   const [board, setBoard] = useState(Array(9).fill(null))
   const [xIsNext, setXIsNext] = useState(true)
   const [vsCpu, setVsCpu] = useState(false)
   const [cpuThinking, setCpuThinking] = useState(false)
   const [cpuStatus, setCpuStatus] = useState('')
+  const matchStartedRef = useRef(false)
+  const matchStartMsRef = useRef(Date.now())
+  const finishedRef = useRef(false)
 
   const result = useMemo(() => calculateWinner(board), [board])
   const winner = result?.player
@@ -45,16 +58,47 @@ function App() {
     return `Next player: ${xIsNext ? 'X' : 'O'}`
   }, [winner, draw, xIsNext, vsCpu, cpuThinking])
 
+  useEffect(() => {
+    ensureSessionId('tictactoe')
+    reportMatchEvent({ game: 'tictactoe', event: 'session' })
+  }, [])
+
+  const beginMatchIfNeeded = useCallback((nextVsCpu = vsCpu) => {
+    if (matchStartedRef.current) return
+    matchStartedRef.current = true
+    finishedRef.current = false
+    matchStartMsRef.current = Date.now()
+    reportMatchEvent({ game: 'tictactoe', event: 'started', mode: modeLabel(nextVsCpu) })
+  }, [vsCpu])
+
+  const finishMatch = useCallback((resultValue, nextVsCpu = vsCpu) => {
+    if (finishedRef.current) return
+    finishedRef.current = true
+    reportMatchEvent({
+      game: 'tictactoe',
+      event: 'finished',
+      mode: modeLabel(nextVsCpu),
+      result: resultValue,
+      duration_ms: Date.now() - matchStartMsRef.current,
+    })
+  }, [vsCpu])
+
+  useEffect(() => {
+    if (winner) finishMatch(resultLabel(winner, vsCpu))
+    else if (draw) finishMatch('draw')
+  }, [winner, draw, vsCpu, finishMatch])
+
   const handleClick = useCallback(
     (index) => {
       if (board[index] || winner || cpuThinking) return
       if (vsCpu && !xIsNext) return
+      beginMatchIfNeeded()
       const nextBoard = board.slice()
       nextBoard[index] = xIsNext ? 'X' : 'O'
       setBoard(nextBoard)
       setXIsNext(!xIsNext)
     },
-    [board, winner, xIsNext, vsCpu, cpuThinking]
+    [board, winner, xIsNext, vsCpu, cpuThinking, beginMatchIfNeeded]
   )
 
   useEffect(() => {
@@ -75,6 +119,7 @@ function App() {
           throw new Error('CPU returned an illegal cell')
         }
         setCpuStatus(`${data.source}${data.reason ? `: ${data.reason}` : ''}`)
+        beginMatchIfNeeded()
         const nextBoard = board.slice()
         nextBoard[cell] = CPU_PLAYER
         setBoard(nextBoard)
@@ -91,7 +136,7 @@ function App() {
       controller.abort()
       clearTimeout(timer)
     }
-  }, [vsCpu, winner, draw, xIsNext, board])
+  }, [vsCpu, winner, draw, xIsNext, board, beginMatchIfNeeded])
 
   const handleKeyDown = useCallback(
     (e, index) => {
@@ -108,6 +153,9 @@ function App() {
     setXIsNext(true)
     setCpuThinking(false)
     setCpuStatus('')
+    matchStartedRef.current = false
+    finishedRef.current = false
+    matchStartMsRef.current = Date.now()
   }, [])
 
   const humanCanPlay = !winner && !draw && !cpuThinking && (!vsCpu || xIsNext)
