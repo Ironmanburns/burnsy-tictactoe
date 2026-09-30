@@ -129,6 +129,16 @@ pipeline:
                         --set ingress.enabled=true \
                         --set ingress.host="${HOST}" \
                         --wait --timeout 3m
+                      # Ingress controller can lag a few seconds behind Endpoints readiness.
+                      i=0
+                      while [ "$i" -lt 30 ]; do
+                        EP=$(kubectl get endpoints "${APP}" -n "${NS}" -o jsonpath='{.subsets[*].addresses[*].ip}' 2>/dev/null || true)
+                        if [ -n "${EP}" ]; then
+                          break
+                        fi
+                        i=$((i + 1))
+                        sleep 2
+                      done
                       echo "Preview URL: https://${HOST}"
         failureStrategies:
           - onFailure:
