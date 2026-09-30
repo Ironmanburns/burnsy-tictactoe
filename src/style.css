@@ -54,6 +54,27 @@ body::before {
   margin-bottom: 24px;
   position: relative;
   z-index: 1;
+  flex-wrap: wrap;
+}
+
+.cpu-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.85rem;
+  letter-spacing: 0.04em;
+  color: #c4b5fd;
+  cursor: pointer;
+  position: relative;
+  z-index: 1;
+}
+
+.cpu-status {
+  margin-top: 0.75rem;
+  font-size: 0.85rem;
+  color: #67e8f9;
+  position: relative;
+  z-index: 1;
 }
 
 .title-bar h1 {

@@ -59,6 +59,13 @@ describe('App', () => {
     expect(within(container).getByText('Next player: X')).toBeTruthy()
   })
 
+  it('exposes a Play vs CPU toggle without enabling it by default', () => {
+    const { container } = render(<App />)
+    const toggle = within(container).getByLabelText(/Play vs CPU/i)
+    expect(toggle).toBeTruthy()
+    expect(toggle.checked).toBe(false)
+  })
+
   it('shows a winner message when a line is completed', () => {
     const { container } = render(<App />)
     const squares = within(container).getAllByRole('button', { name: /Square/ })
