@@ -1,0 +1,119 @@
+pipeline:
+  name: Deploy TicTacToe Local Kind
+  identifier: Deploy_TicTacToe_Local_Kind
+  projectIdentifier: default_project
+  orgIdentifier: default
+  tags:
+    app: tictactoe
+    target: local-kind
+  properties:
+    ci:
+      codebase:
+        connectorRef: account.Github
+        repoName: Ironmanburns/burnsy-tictactoe
+        build: <+input>
+  variables:
+    - name: imageRepo
+      type: String
+      description: Image repository path on Zot (no registry host)
+      value: tictactoe
+    - name: imageTag
+      type: String
+      description: Image tag (pipeline sequence by default)
+      value: <+pipeline.sequenceId>
+  stages:
+    - stage:
+        name: Build
+        identifier: Build
+        description: Build image, push to local Zot, Trivy CRITICAL gate
+        type: CI
+        spec:
+          cloneCodebase: true
+          infrastructure:
+            type: KubernetesDirect
+            spec:
+              connectorRef: local_kind_k8s
+              namespace: harness-ci
+              automountServiceAccountToken: true
+              nodeSelector: {}
+              os: Linux
+          execution:
+            steps:
+              - step:
+                  type: BuildAndPushDockerRegistry
+                  name: Build and Push
+                  identifier: Build_and_Push
+                  spec:
+                    connectorRef: local_zot
+                    repo: <+pipeline.variables.imageRepo>
+                    tags:
+                      - <+pipeline.variables.imageTag>
+                      - <+codebase.commitSha>
+                    dockerfile: Dockerfile
+                    context: .
+                    buildArgs: {}
+              - step:
+                  type: Run
+                  name: Trivy Image Scan
+                  identifier: Trivy_Image_Scan
+                  spec:
+                    connectorRef: dockerhub_public
+                    image: aquasec/trivy:0.57.1
+                    shell: Sh
+                    command: |-
+                      set -e
+                      REGISTRY="zot.harness-ci.svc.cluster.local:5000"
+                      REF="$REGISTRY/<+pipeline.variables.imageRepo>:<+pipeline.variables.imageTag>"
+                      echo "Scanning $REF"
+                      trivy image --severity CRITICAL --exit-code 1 --no-progress --timeout 10m "$REF"
+        failureStrategies:
+          - onFailure:
+              errors:
+                - AllErrors
+              action:
+                type: Abort
+    - stage:
+        name: Deploy
+        identifier: Deploy
+        description: Helm deploy to local kind via delegate
+        type: Deployment
+        when:
+          pipelineStatus: Success
+          condition: <+trigger.branch> == "main" || <+codebase.branch> == "main"
+        spec:
+          deploymentType: NativeHelm
+          service:
+            serviceRef: tictactoe
+          environment:
+            environmentRef: local_kind
+            deployToAll: false
+            infrastructureDefinitions:
+              - identifier: kind_infra_tictactoe
+          execution:
+            steps:
+              - step:
+                  name: Helm Deploy
+                  identifier: Helm_Deploy
+                  type: HelmDeploy
+                  timeout: 10m
+                  spec:
+                    skipDryRun: false
+                    commandFlags:
+                      - commandType: Upgrade
+                        flag: "--set image.tag=<+pipeline.variables.imageTag>"
+                      - commandType: Install
+                        flag: "--set image.tag=<+pipeline.variables.imageTag>"
+            rollbackSteps:
+              - step:
+                  name: Helm Rollback
+                  identifier: Helm_Rollback
+                  type: HelmRollback
+                  timeout: 10m
+                  spec: {}
+        tags: {}
+        failureStrategies:
+          - onFailure:
+              errors:
+                - AllErrors
+              action:
+                type: StageRollback
