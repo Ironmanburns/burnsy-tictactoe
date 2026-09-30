@@ -1,0 +1,138 @@
+pipeline:
+  name: PR Preview TicTacToe Local Kind
+  identifier: PR_Preview_TicTacToe_Local_Kind
+  projectIdentifier: default_project
+  orgIdentifier: default
+  tags:
+    app: tictactoe
+    target: local-kind
+    purpose: pr-preview
+  properties:
+    ci:
+      codebase:
+        connectorRef: account.Github
+        repoName: Ironmanburns/burnsy-tictactoe
+        build: <+input>
+  variables:
+    - name: imageRepo
+      type: String
+      value: tictactoe
+    - name: appName
+      type: String
+      value: tictactoe
+  stages:
+    - stage:
+        name: Build
+        identifier: Build
+        description: Build PR image to local Zot
+        type: CI
+        spec:
+          cloneCodebase: true
+          infrastructure:
+            type: KubernetesDirect
+            spec:
+              connectorRef: local_kind_k8s
+              namespace: harness-ci
+              serviceAccountName: harness-games-preview
+              automountServiceAccountToken: true
+              nodeSelector: {}
+              os: Linux
+          execution:
+            steps:
+              - step:
+                  type: Run
+                  name: Build and Push
+                  identifier: Build_and_Push
+                  spec:
+                    connectorRef: dockerhub_public
+                    image: gcr.io/kaniko-project/executor:v1.23.2-debug
+                    shell: Sh
+                    command: |-
+                      set -e
+                      REGISTRY="zot.harness-ci.svc.cluster.local:5000"
+                      REPO="<+pipeline.variables.imageRepo>"
+                      TAG="pr-<+trigger.prNumber>"
+                      SHA="<+codebase.commitSha>"
+                      /kaniko/executor \
+                        --dockerfile=Dockerfile \
+                        --context=dir:///harness \
+                        --destination="${REGISTRY}/${REPO}:${TAG}" \
+                        --destination="${REGISTRY}/${REPO}:${SHA}" \
+                        --insecure \
+                        --skip-tls-verify \
+                        --ignore-path=/product_uuid \
+                        --snapshot-mode=redo
+              - step:
+                  type: Run
+                  name: Trivy Image Scan
+                  identifier: Trivy_Image_Scan
+                  spec:
+                    connectorRef: dockerhub_public
+                    image: aquasec/trivy:0.57.1
+                    shell: Sh
+                    command: |-
+                      set -e
+                      REGISTRY="zot.harness-ci.svc.cluster.local:5000"
+                      REF="$REGISTRY/<+pipeline.variables.imageRepo>:pr-<+trigger.prNumber>"
+                      echo "Scanning $REF"
+                      trivy image --severity CRITICAL --exit-code 1 --no-progress --timeout 10m --insecure "$REF"
+        failureStrategies:
+          - onFailure:
+              errors:
+                - AllErrors
+              action:
+                type: Abort
+    - stage:
+        name: Preview Deploy
+        identifier: Preview_Deploy
+        description: Ephemeral Helm release + Ingress for this PR
+        type: CI
+        when:
+          pipelineStatus: Success
+        spec:
+          cloneCodebase: true
+          infrastructure:
+            type: KubernetesDirect
+            spec:
+              connectorRef: local_kind_k8s
+              namespace: harness-ci
+              serviceAccountName: harness-games-preview
+              automountServiceAccountToken: true
+              nodeSelector: {}
+              os: Linux
+          execution:
+            steps:
+              - step:
+                  type: Run
+                  name: Helm Preview Deploy
+                  identifier: Helm_Preview_Deploy
+                  spec:
+                    connectorRef: dockerhub_public
+                    image: alpine/helm:3.16.3
+                    shell: Sh
+                    command: |-
+                      set -e
+                      apk add --no-cache kubectl >/dev/null
+                      APP="<+pipeline.variables.appName>"
+                      PR="<+trigger.prNumber>"
+                      NS="games-pr-${APP}-${PR}"
+                      RELEASE="${APP}-pr-${PR}"
+                      HOST="${APP}-pr-${PR}.theburnsasylum.co.uk"
+                      TAG="pr-${PR}"
+                      echo "Deploying preview ${RELEASE} -> https://${HOST}"
+                      kubectl create namespace "${NS}" --dry-run=client -o yaml | kubectl apply -f -
+                      helm upgrade --install "${RELEASE}" /harness/charts/${APP} \
+                        --namespace "${NS}" \
+                        --set image.repository="localhost:5001/${APP}" \
+                        --set image.tag="${TAG}" \
+                        --set service.type=ClusterIP \
+                        --set ingress.enabled=true \
+                        --set ingress.host="${HOST}" \
+                        --wait --timeout 3m
+                      echo "Preview URL: https://${HOST}"
+        failureStrategies:
+          - onFailure:
+              errors:
+                - AllErrors
+              action:
+                type: Abort

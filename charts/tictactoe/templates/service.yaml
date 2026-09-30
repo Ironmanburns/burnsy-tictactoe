@@ -1,3 +1,4 @@
+{{- if and (eq .Values.service.type "NodePort") .Values.service.nodePort }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -12,6 +13,20 @@ spec:
     - name: http
       port: {{ .Values.service.port }}
       targetPort: 80
-      {{- if and (eq .Values.service.type "NodePort") .Values.service.nodePort }}
       nodePort: {{ .Values.service.nodePort }}
-      {{- end }}
+{{- else }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Chart.Name }}
+  labels:
+    app: {{ .Chart.Name }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    app: {{ .Chart.Name }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: 80
+{{- end }}
