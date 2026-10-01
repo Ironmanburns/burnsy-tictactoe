@@ -51,3 +51,29 @@ export function reportMatchEvent(payload) {
     mode: 'cors',
   }).catch(() => {})
 }
+
+export async function fetchLeaderboard(game, limit = 10) {
+  const res = await fetch(`${cpuApiBase()}/v1/leaderboard?game=${encodeURIComponent(game)}&limit=${limit}`, {
+    method: 'GET',
+    mode: 'cors',
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    throw new Error(data.error || `Leaderboard ${res.status}`)
+  }
+  return data
+}
+
+export async function submitLeaderboardScore({ game, name, score }) {
+  const res = await fetch(`${cpuApiBase()}/v1/leaderboard`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ game, name, score }),
+    mode: 'cors',
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    throw new Error(data.error || `Leaderboard ${res.status}`)
+  }
+  return data
+}
