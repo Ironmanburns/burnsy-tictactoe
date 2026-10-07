@@ -1,4 +1,4 @@
-const DEFAULT_CPU_API = 'https://games-cpu.theburnsasylum.co.uk'
+const DEFAULT_CPU_API = 'https://games-cpu.burnsy.me'
 
 export function cpuApiBase() {
   return (import.meta.env.VITE_CPU_API_URL || DEFAULT_CPU_API).replace(/\/$/, '')

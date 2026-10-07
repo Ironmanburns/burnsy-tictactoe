@@ -117,7 +117,7 @@ pipeline:
                       PR="<+trigger.prNumber>"
                       NS="games-pr-${APP}-${PR}"
                       RELEASE="${APP}-pr-${PR}"
-                      HOST="${APP}-pr-${PR}.theburnsasylum.co.uk"
+                      HOST="${APP}-pr-${PR}.burnsy.me"
                       TAG="pr-${PR}"
                       echo "Deploying preview ${RELEASE} -> https://${HOST}"
                       kubectl create namespace "${NS}" --dry-run=client -o yaml | kubectl apply -f -

@@ -11,11 +11,11 @@ Git Experience pipelines for this host's kind cluster (`demo-cluster`).
 ## Stable
 
 - Service / infra: `tictactoe` / `kind_infra_tictactoe` (namespace `games`)
-- URL: https://tictactoe.theburnsasylum.co.uk (NodePort `30081`)
+- URL: https://tictactoe.burnsy.me (NodePort `30081`)
 
 ## PR previews
 
 - Namespace: `games-pr-tictactoe-<prNumber>`
 - Helm release: `tictactoe-pr-<prNumber>`
-- URL: `https://tictactoe-pr-<prNumber>.theburnsasylum.co.uk` (Ingress → kind ingress → Cloudflare wildcard)
+- URL: `https://tictactoe-pr-<prNumber>.burnsy.me` (Ingress → kind ingress → Cloudflare wildcard)
 - Torn down automatically when the PR is closed or merged to `main`
