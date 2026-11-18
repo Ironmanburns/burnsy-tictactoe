@@ -1,9 +1,13 @@
 replicaCount: 1
 image:
-  repository: localhost:5001/tictactoe
+  # Same reference CI pushes. Public Docker Hub repo; kind no longer uses Zot as the CI destination.
+  repository: docker.io/ironmanburns/tictactoe
   tag: "latest"
   pullPolicy: IfNotPresent
+# Name of a docker-registry Secret already in the namespace. Empty skips it.
+imagePullSecrets: []
 service:
+  # NodePort 30081 matches the previous home kind port so host cloudflared can use http://localhost:30081.
   type: NodePort
   port: 80
   nodePort: 30081

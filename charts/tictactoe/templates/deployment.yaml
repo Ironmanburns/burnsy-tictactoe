@@ -14,6 +14,16 @@ spec:
       labels:
         app: {{ .Chart.Name }}
     spec:
+      {{- $pullSecrets := list }}
+      {{- range .Values.imagePullSecrets }}
+      {{- if .name }}
+      {{- $pullSecrets = append $pullSecrets (dict "name" .name) }}
+      {{- end }}
+      {{- end }}
+      {{- with $pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: web
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
