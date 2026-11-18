@@ -1,0 +1,59 @@
+# PR close on Contabo k3s: uninstall the preview release and delete
+# ns games-pr-tictactoe-<PR> (created by PR_Preview_TicTacToe_Contabo). Runs on the
+# contabo delegate, so it needs no clone and no CI pod.
+pipeline:
+  name: PR Teardown TicTacToe Contabo
+  identifier: PR_Teardown_TicTacToe_Contabo
+  projectIdentifier: default_project
+  orgIdentifier: default
+  tags:
+    app: tictactoe
+    target: contabo
+    purpose: pr-teardown
+  variables:
+    - name: appName
+      type: String
+      value: tictactoe
+    - name: prNumber
+      type: String
+      value: <+input>
+  stages:
+    - stage:
+        name: Teardown
+        identifier: Teardown
+        description: helm uninstall + delete the preview namespace
+        type: Custom
+        spec:
+          execution:
+            steps:
+              - step:
+                  type: ShellScript
+                  name: Delete preview
+                  identifier: Delete_preview
+                  timeout: 10m
+                  spec:
+                    shell: Bash
+                    onDelegate: true
+                    delegateSelectors:
+                      - contabo
+                    source:
+                      type: Inline
+                      spec:
+                        script: |-
+                          set -euo pipefail
+                          APP="<+pipeline.variables.appName>"
+                          PR="<+pipeline.variables.prNumber>"
+                          case "$PR" in ''|*[!0-9]*) echo "prNumber must be numeric, got '$PR'"; exit 1;; esac
+                          NS="games-pr-${APP}-${PR}"
+                          RELEASE="${APP}-pr-${PR}"
+                          HELM=$(ls -d /opt/harness-delegate/client-tools/helm/*/helm | sort -V | tail -1)
+                          if kubectl get namespace "$NS" >/dev/null 2>&1; then
+                            $HELM uninstall "$RELEASE" --namespace "$NS" || true
+                            kubectl delete namespace "$NS" --wait=true --timeout=5m
+                            echo "Deleted $NS"
+                          else
+                            echo "Namespace $NS already gone"
+                          fi
+                    environmentVariables: []
+                    outputVariables: []
+        tags: {}
