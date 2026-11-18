@@ -216,7 +216,7 @@ pipeline:
             type: Deployment
             when:
               pipelineStatus: All
-              condition: (<+pipeline.variables.deployTarget> == "all" || <+pipeline.variables.deployTarget> == "local_kind") && (<+pipeline.triggerType> == "MANUAL" || <+trigger.branch.default("")> == "main" || <+codebase.branch.default("")> == "main") && (<+pipeline.stages.Build_contabo.status> == "SUCCESS" || <+pipeline.stages.Build_local_kind.status> == "SUCCESS")
+              condition: (<+pipeline.variables.deployTarget> == "all" || <+pipeline.variables.deployTarget> == "local_kind") && (<+pipeline.triggerType> == "MANUAL" || <+codebase.branch> == "main") && (<+pipeline.stages.Build_contabo.status> == "SUCCEEDED" || <+pipeline.stages.Build_local_kind.status> == "SUCCEEDED")
             spec:
               deploymentType: NativeHelm
               service:
@@ -261,7 +261,7 @@ pipeline:
             type: Deployment
             when:
               pipelineStatus: All
-              condition: (<+pipeline.variables.deployTarget> == "all" || <+pipeline.variables.deployTarget> == "contabo") && (<+pipeline.triggerType> == "MANUAL" || <+trigger.branch.default("")> == "main" || <+codebase.branch.default("")> == "main") && (<+pipeline.stages.Build_contabo.status> == "SUCCESS" || <+pipeline.stages.Build_local_kind.status> == "SUCCESS")
+              condition: (<+pipeline.variables.deployTarget> == "all" || <+pipeline.variables.deployTarget> == "contabo") && (<+pipeline.triggerType> == "MANUAL" || <+codebase.branch> == "main") && (<+pipeline.stages.Build_contabo.status> == "SUCCEEDED" || <+pipeline.stages.Build_local_kind.status> == "SUCCEEDED")
             spec:
               deploymentType: NativeHelm
               service:
