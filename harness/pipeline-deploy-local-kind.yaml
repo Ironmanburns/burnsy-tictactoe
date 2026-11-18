@@ -1,11 +1,15 @@
+# buildTarget selects the CI cluster. Harness delegate selectors are AND, so one
+# stage cannot list both local-kind and contabo. auto uses Contabo: scheduling
+# the kind stage while that delegate is offline fails the check or waits it out.
+# Set buildTarget=local_kind only when the home delegate is back.
 pipeline:
-  name: Deploy TicTacToe Local Kind
+  name: Deploy TicTacToe
   identifier: Deploy_TicTacToe_Local_Kind
   projectIdentifier: default_project
   orgIdentifier: default
   tags:
     app: tictactoe
-    target: local-kind
+    target: contabo
   properties:
     ci:
       codebase:
@@ -13,20 +17,128 @@ pipeline:
         repoName: Ironmanburns/burnsy-tictactoe
         build: <+input>
   variables:
+    - name: buildTarget
+      type: String
+      description: "CI cluster. auto and contabo use contabo_k8s (delegate tag contabo). local_kind uses local_kind_k8s."
+      value: contabo
+    - name: imageRegistryHost
+      type: String
+      description: Registry host in the image reference.
+      value: docker.io
+    - name: imageRegistryUser
+      type: String
+      description: Docker Hub login for the push. Connector my_docker username. Not a secret.
+      value: ironmanburns
+    - name: imageNamespace
+      type: String
+      description: Namespace/account segment of the image. Same account as imageRegistryUser.
+      value: ironmanburns
     - name: imageRepo
       type: String
-      description: Image repository path on Zot (no registry host)
+      description: Repository name under imageNamespace (no registry host). Public Docker Hub repo.
       value: tictactoe
     - name: imageTag
       type: String
-      description: Image tag (pipeline sequence by default)
+      description: Image tag (pipeline sequence by default). Also pushed as the commit SHA.
       value: <+pipeline.sequenceId>
+    - name: deployTarget
+      type: String
+      description: "Clusters to deploy. contabo (default while kind is down), local_kind, or all."
+      value: contabo
+    - name: imagePullSecretName
+      type: String
+      description: Optional docker-registry Secret name already on the target namespace. Empty skips it. Do not put a password here.
+      value: ""
   stages:
     - stage:
-        name: Build
-        identifier: Build
-        description: Build image, push to local Zot, Trivy CRITICAL gate
+        name: Build contabo
+        identifier: Build_contabo
+        description: Kaniko on contabo_k8s. Push docker.io/ironmanburns via my_docker / docker_password. No kind connector and no Zot.
         type: CI
+        when:
+          pipelineStatus: Success
+          condition: <+pipeline.variables.buildTarget> == "contabo" || <+pipeline.variables.buildTarget> == "auto"
+        delegateSelectors:
+          - contabo
+        spec:
+          cloneCodebase: true
+          infrastructure:
+            type: KubernetesDirect
+            spec:
+              connectorRef: contabo_k8s
+              namespace: harness-ci
+              automountServiceAccountToken: true
+              nodeSelector: {}
+              os: Linux
+          execution:
+            steps:
+              - step:
+                  type: Run
+                  name: Build and Push
+                  identifier: Build_and_Push
+                  spec:
+                    connectorRef: my_docker
+                    image: gcr.io/kaniko-project/executor:v1.23.2-debug
+                    shell: Sh
+                    envVariables:
+                      DOCKER_USER: <+pipeline.variables.imageRegistryUser>
+                      DOCKER_PASS: <+secrets.getValue("docker_password")>
+                    command: |-
+                      set -eu
+                      mkdir -p /kaniko/.docker
+                      AUTH=$(printf '%s:%s' "$DOCKER_USER" "$DOCKER_PASS" | base64 | tr -d '\n')
+                      printf '%s\n' "{\"auths\":{\"https://index.docker.io/v1/\":{\"auth\":\"${AUTH}\"},\"docker.io\":{\"auth\":\"${AUTH}\"}}}" > /kaniko/.docker/config.json
+                      unset DOCKER_PASS AUTH
+                      HOST="<+pipeline.variables.imageRegistryHost>"
+                      NAMESPACE="<+pipeline.variables.imageNamespace>"
+                      REPO="<+pipeline.variables.imageRepo>"
+                      TAG="<+pipeline.variables.imageTag>"
+                      SHA="<+codebase.commitSha>"
+                      IMAGE="${HOST}/${NAMESPACE}/${REPO}"
+                      echo "Pushing ${IMAGE}:${TAG} and ${IMAGE}:${SHA}"
+                      /kaniko/executor \
+                        --dockerfile=Dockerfile \
+                        --context=dir:///harness \
+                        --destination="${IMAGE}:${TAG}" \
+                        --destination="${IMAGE}:${SHA}" \
+                        --ignore-path=/product_uuid \
+                        --snapshot-mode=redo
+              - step:
+                  type: Run
+                  name: Trivy Image Scan
+                  identifier: Trivy_Image_Scan
+                  spec:
+                    connectorRef: my_docker
+                    image: aquasec/trivy:0.57.1
+                    shell: Sh
+                    envVariables:
+                      DOCKER_USER: <+pipeline.variables.imageRegistryUser>
+                      DOCKER_PASS: <+secrets.getValue("docker_password")>
+                    command: |-
+                      set -eu
+                      mkdir -p /root/.docker
+                      AUTH=$(printf '%s:%s' "$DOCKER_USER" "$DOCKER_PASS" | base64 | tr -d '\n')
+                      printf '%s\n' "{\"auths\":{\"https://index.docker.io/v1/\":{\"auth\":\"${AUTH}\"},\"docker.io\":{\"auth\":\"${AUTH}\"}}}" > /root/.docker/config.json
+                      unset DOCKER_PASS AUTH
+                      IMAGE="<+pipeline.variables.imageRegistryHost>/<+pipeline.variables.imageNamespace>/<+pipeline.variables.imageRepo>:<+pipeline.variables.imageTag>"
+                      echo "Scanning ${IMAGE}"
+                      trivy image --severity CRITICAL --exit-code 1 --no-progress --timeout 10m "$IMAGE"
+        failureStrategies:
+          - onFailure:
+              errors:
+                - AllErrors
+              action:
+                type: Abort
+    - stage:
+        name: Build local kind
+        identifier: Build_local_kind
+        description: Kaniko on local_kind_k8s. Same Docker Hub destination. Runs only when buildTarget=local_kind.
+        type: CI
+        when:
+          pipelineStatus: Success
+          condition: <+pipeline.variables.buildTarget> == "local_kind"
+        delegateSelectors:
+          - local-kind
         spec:
           cloneCodebase: true
           infrastructure:
@@ -44,22 +156,30 @@ pipeline:
                   name: Build and Push
                   identifier: Build_and_Push
                   spec:
-                    connectorRef: dockerhub_public
+                    connectorRef: my_docker
                     image: gcr.io/kaniko-project/executor:v1.23.2-debug
                     shell: Sh
+                    envVariables:
+                      DOCKER_USER: <+pipeline.variables.imageRegistryUser>
+                      DOCKER_PASS: <+secrets.getValue("docker_password")>
                     command: |-
-                      set -e
-                      REGISTRY="zot.harness-ci.svc.cluster.local:5000"
+                      set -eu
+                      mkdir -p /kaniko/.docker
+                      AUTH=$(printf '%s:%s' "$DOCKER_USER" "$DOCKER_PASS" | base64 | tr -d '\n')
+                      printf '%s\n' "{\"auths\":{\"https://index.docker.io/v1/\":{\"auth\":\"${AUTH}\"},\"docker.io\":{\"auth\":\"${AUTH}\"}}}" > /kaniko/.docker/config.json
+                      unset DOCKER_PASS AUTH
+                      HOST="<+pipeline.variables.imageRegistryHost>"
+                      NAMESPACE="<+pipeline.variables.imageNamespace>"
                       REPO="<+pipeline.variables.imageRepo>"
                       TAG="<+pipeline.variables.imageTag>"
                       SHA="<+codebase.commitSha>"
+                      IMAGE="${HOST}/${NAMESPACE}/${REPO}"
+                      echo "Pushing ${IMAGE}:${TAG} and ${IMAGE}:${SHA}"
                       /kaniko/executor \
                         --dockerfile=Dockerfile \
                         --context=dir:///harness \
-                        --destination="${REGISTRY}/${REPO}:${TAG}" \
-                        --destination="${REGISTRY}/${REPO}:${SHA}" \
-                        --insecure \
-                        --skip-tls-verify \
+                        --destination="${IMAGE}:${TAG}" \
+                        --destination="${IMAGE}:${SHA}" \
                         --ignore-path=/product_uuid \
                         --snapshot-mode=redo
               - step:
@@ -67,63 +187,115 @@ pipeline:
                   name: Trivy Image Scan
                   identifier: Trivy_Image_Scan
                   spec:
-                    connectorRef: dockerhub_public
+                    connectorRef: my_docker
                     image: aquasec/trivy:0.57.1
                     shell: Sh
+                    envVariables:
+                      DOCKER_USER: <+pipeline.variables.imageRegistryUser>
+                      DOCKER_PASS: <+secrets.getValue("docker_password")>
                     command: |-
-                      set -e
-                      REGISTRY="zot.harness-ci.svc.cluster.local:5000"
-                      REF="$REGISTRY/<+pipeline.variables.imageRepo>:<+pipeline.variables.imageTag>"
-                      echo "Scanning $REF"
-                      trivy image --severity CRITICAL --exit-code 1 --no-progress --timeout 10m --insecure "$REF"
+                      set -eu
+                      mkdir -p /root/.docker
+                      AUTH=$(printf '%s:%s' "$DOCKER_USER" "$DOCKER_PASS" | base64 | tr -d '\n')
+                      printf '%s\n' "{\"auths\":{\"https://index.docker.io/v1/\":{\"auth\":\"${AUTH}\"},\"docker.io\":{\"auth\":\"${AUTH}\"}}}" > /root/.docker/config.json
+                      unset DOCKER_PASS AUTH
+                      IMAGE="<+pipeline.variables.imageRegistryHost>/<+pipeline.variables.imageNamespace>/<+pipeline.variables.imageRepo>:<+pipeline.variables.imageTag>"
+                      echo "Scanning ${IMAGE}"
+                      trivy image --severity CRITICAL --exit-code 1 --no-progress --timeout 10m "$IMAGE"
         failureStrategies:
           - onFailure:
               errors:
                 - AllErrors
               action:
                 type: Abort
-    - stage:
-        name: Deploy
-        identifier: Deploy
-        description: Helm deploy to local kind via delegate
-        type: Deployment
-        when:
-          pipelineStatus: Success
-          condition: <+trigger.branch> == "main" || <+codebase.branch> == "main"
-        spec:
-          deploymentType: NativeHelm
-          service:
-            serviceRef: tictactoe
-          environment:
-            environmentRef: local_kind
-            deployToAll: false
-            infrastructureDefinitions:
-              - identifier: kind_infra_tictactoe
-          execution:
-            steps:
-              - step:
-                  name: Helm Deploy
-                  identifier: Helm_Deploy
-                  type: HelmDeploy
-                  timeout: 10m
-                  spec:
-                    skipDryRun: false
-                    commandFlags:
-                      - commandType: Upgrade
-                        flag: "--set image.tag=<+pipeline.variables.imageTag>"
-                      - commandType: Install
-                        flag: "--set image.tag=<+pipeline.variables.imageTag>"
-            rollbackSteps:
-              - step:
-                  name: Helm Rollback
-                  identifier: Helm_Rollback
-                  type: HelmRollback
-                  timeout: 10m
-                  spec: {}
-        tags: {}
-        failureStrategies:
-          - onFailure:
-              errors:
-                - AllErrors
-              action:
-                type: StageRollback
+    - parallel:
+        - stage:
+            name: Deploy local kind
+            identifier: Deploy_local_kind
+            description: Helm deploy to kind. Skipped unless deployTarget is local_kind or all. Failure is ignored so a down kind delegate does not fail the pipeline.
+            type: Deployment
+            when:
+              pipelineStatus: All
+              condition: (<+pipeline.variables.deployTarget> == "all" || <+pipeline.variables.deployTarget> == "local_kind") && (<+pipeline.triggerType> == "MANUAL" || <+trigger.branch.default("")> == "main" || <+codebase.branch.default("")> == "main") && (<+pipeline.stages.Build_contabo.status> == "SUCCESS" || <+pipeline.stages.Build_local_kind.status> == "SUCCESS")
+            spec:
+              deploymentType: NativeHelm
+              service:
+                serviceRef: tictactoe
+              environment:
+                environmentRef: local_kind
+                deployToAll: false
+                infrastructureDefinitions:
+                  - identifier: kind_infra_tictactoe
+              execution:
+                steps:
+                  - step:
+                      name: Helm Deploy
+                      identifier: Helm_Deploy
+                      type: HelmDeploy
+                      timeout: 10m
+                      spec:
+                        skipDryRun: false
+                        commandFlags:
+                          - commandType: Upgrade
+                            flag: "--set-string image.repository=<+pipeline.variables.imageRegistryHost>/<+pipeline.variables.imageNamespace>/<+pipeline.variables.imageRepo> --set-string image.tag=<+pipeline.variables.imageTag> --set-string imagePullSecrets[0].name=<+pipeline.variables.imagePullSecretName> --set service.type=NodePort --set service.nodePort=30081"
+                          - commandType: Install
+                            flag: "--set-string image.repository=<+pipeline.variables.imageRegistryHost>/<+pipeline.variables.imageNamespace>/<+pipeline.variables.imageRepo> --set-string image.tag=<+pipeline.variables.imageTag> --set-string imagePullSecrets[0].name=<+pipeline.variables.imagePullSecretName> --set service.type=NodePort --set service.nodePort=30081"
+                rollbackSteps:
+                  - step:
+                      name: Helm Rollback
+                      identifier: Helm_Rollback
+                      type: HelmRollback
+                      timeout: 10m
+                      spec: {}
+            tags: {}
+            failureStrategies:
+              - onFailure:
+                  errors:
+                    - AllErrors
+                  action:
+                    type: Ignore
+        - stage:
+            name: Deploy contabo
+            identifier: Deploy_contabo
+            description: Helm deploy to Contabo k3s namespace games as NodePort 30081. Runs for deployTarget contabo or all. Does not use the kind connector.
+            type: Deployment
+            when:
+              pipelineStatus: All
+              condition: (<+pipeline.variables.deployTarget> == "all" || <+pipeline.variables.deployTarget> == "contabo") && (<+pipeline.triggerType> == "MANUAL" || <+trigger.branch.default("")> == "main" || <+codebase.branch.default("")> == "main") && (<+pipeline.stages.Build_contabo.status> == "SUCCESS" || <+pipeline.stages.Build_local_kind.status> == "SUCCESS")
+            spec:
+              deploymentType: NativeHelm
+              service:
+                serviceRef: tictactoe
+              environment:
+                environmentRef: contabo
+                deployToAll: false
+                infrastructureDefinitions:
+                  - identifier: contabo_infra_tictactoe
+              execution:
+                steps:
+                  - step:
+                      name: Helm Deploy
+                      identifier: Helm_Deploy
+                      type: HelmDeploy
+                      timeout: 10m
+                      spec:
+                        skipDryRun: false
+                        commandFlags:
+                          - commandType: Upgrade
+                            flag: "--set-string image.repository=<+pipeline.variables.imageRegistryHost>/<+pipeline.variables.imageNamespace>/<+pipeline.variables.imageRepo> --set-string image.tag=<+pipeline.variables.imageTag> --set-string imagePullSecrets[0].name=<+pipeline.variables.imagePullSecretName> --set service.type=NodePort --set service.nodePort=30081"
+                          - commandType: Install
+                            flag: "--set-string image.repository=<+pipeline.variables.imageRegistryHost>/<+pipeline.variables.imageNamespace>/<+pipeline.variables.imageRepo> --set-string image.tag=<+pipeline.variables.imageTag> --set-string imagePullSecrets[0].name=<+pipeline.variables.imagePullSecretName> --set service.type=NodePort --set service.nodePort=30081"
+                rollbackSteps:
+                  - step:
+                      name: Helm Rollback
+                      identifier: Helm_Rollback
+                      type: HelmRollback
+                      timeout: 10m
+                      spec: {}
+            tags: {}
+            failureStrategies:
+              - onFailure:
+                  errors:
+                    - AllErrors
+                  action:
+                    type: StageRollback

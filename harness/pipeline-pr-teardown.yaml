@@ -1,11 +1,14 @@
+# PR close. Default buildTarget contabo does not schedule local_kind_k8s, so a
+# down home delegate cannot stall the close trigger. Kind preview namespaces
+# are removed only when buildTarget=local_kind (same switch as the preview pipeline).
 pipeline:
-  name: PR Teardown TicTacToe Local Kind
+  name: PR Teardown TicTacToe
   identifier: PR_Teardown_TicTacToe_Local_Kind
   projectIdentifier: default_project
   orgIdentifier: default
   tags:
     app: tictactoe
-    target: local-kind
+    target: contabo
     purpose: pr-teardown
   properties:
     ci:
@@ -14,15 +17,67 @@ pipeline:
         repoName: Ironmanburns/burnsy-tictactoe
         build: <+input>
   variables:
+    - name: buildTarget
+      type: String
+      description: "local_kind deletes the kind preview namespace. Any other value skips that connector."
+      value: contabo
     - name: appName
       type: String
       value: tictactoe
   stages:
     - stage:
-        name: Teardown
-        identifier: Teardown
-        description: Remove ephemeral PR preview release and namespace
+        name: Teardown contabo
+        identifier: Teardown_contabo
+        description: No Contabo preview release is created. Confirms the close trigger without touching kind.
         type: CI
+        when:
+          pipelineStatus: Success
+          condition: <+pipeline.variables.buildTarget> != "local_kind"
+        delegateSelectors:
+          - contabo
+        spec:
+          cloneCodebase: false
+          infrastructure:
+            type: KubernetesDirect
+            spec:
+              connectorRef: contabo_k8s
+              namespace: harness-ci
+              automountServiceAccountToken: true
+              nodeSelector: {}
+              os: Linux
+          execution:
+            steps:
+              - step:
+                  type: Run
+                  name: No Contabo preview
+                  identifier: No_Contabo_Preview
+                  spec:
+                    connectorRef: my_docker
+                    image: alpine:3.20
+                    shell: Sh
+                    command: |-
+                      set -eu
+                      APP="<+pipeline.variables.appName>"
+                      PR="<+trigger.prNumber>"
+                      echo "No Contabo preview for ${APP} PR ${PR}."
+                      echo "Stable TicTacToe is Helm release tictactoe in namespace games, NodePort 30081."
+                      echo "Kind preview teardown runs only when buildTarget=local_kind."
+        failureStrategies:
+          - onFailure:
+              errors:
+                - AllErrors
+              action:
+                type: Abort
+    - stage:
+        name: Teardown local kind
+        identifier: Teardown_local_kind
+        description: Remove the ephemeral kind preview release and namespace. Scheduled only when buildTarget=local_kind.
+        type: CI
+        when:
+          pipelineStatus: Success
+          condition: <+pipeline.variables.buildTarget> == "local_kind"
+        delegateSelectors:
+          - local-kind
         spec:
           cloneCodebase: false
           infrastructure:
@@ -41,11 +96,11 @@ pipeline:
                   name: Helm Preview Teardown
                   identifier: Helm_Preview_Teardown
                   spec:
-                    connectorRef: dockerhub_public
+                    connectorRef: my_docker
                     image: alpine/helm:3.16.3
                     shell: Sh
                     command: |-
-                      set -e
+                      set -eu
                       apk add --no-cache kubectl >/dev/null
                       APP="<+pipeline.variables.appName>"
                       PR="<+trigger.prNumber>"
