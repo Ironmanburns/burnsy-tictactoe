@@ -1,0 +1,168 @@
+# PR preview on Contabo k3s. Build + push docker.io/ironmanburns/tictactoe:pr-<PR>,
+# Trivy CRITICAL gate, then an ephemeral Helm release in ns games-pr-tictactoe-<PR>
+# with an Ingress (class traefik) for tictactoe-pr-<PR>.burnsy.me. Traefik listens on
+# NodePort 30090 and cloudflared routes *.burnsy.me / *.theburnsasylum.co.uk there.
+# Torn down by PR_Teardown_TicTacToe_Contabo on PR close.
+pipeline:
+  name: PR Preview TicTacToe Contabo
+  identifier: PR_Preview_TicTacToe_Contabo
+  projectIdentifier: default_project
+  orgIdentifier: default
+  tags:
+    app: tictactoe
+    target: contabo
+    purpose: pr-preview
+  properties:
+    ci:
+      codebase:
+        connectorRef: account.Github
+        repoName: Ironmanburns/burnsy-tictactoe
+        build: <+input>
+  variables:
+    - name: imageRegistryUser
+      type: String
+      description: Docker Hub login for the push. Not a secret.
+      value: ironmanburns
+    - name: image
+      type: String
+      value: docker.io/ironmanburns/tictactoe
+    - name: appName
+      type: String
+      value: tictactoe
+    - name: prNumber
+      type: String
+      description: PR number (from the PR build).
+      value: <+codebase.prNumber>
+    - name: previewDomain
+      type: String
+      value: burnsy.me
+  stages:
+    - stage:
+        name: Build
+        identifier: Build
+        description: PR build on contabo_k8s, push to Docker Hub, Trivy CRITICAL gate
+        type: CI
+        delegateSelectors:
+          - contabo
+        spec:
+          cloneCodebase: true
+          infrastructure:
+            type: KubernetesDirect
+            spec:
+              connectorRef: contabo_k8s
+              namespace: harness-ci
+              automountServiceAccountToken: true
+              nodeSelector: {}
+              os: Linux
+          execution:
+            steps:
+              - step:
+                  type: Run
+                  name: Build and Push
+                  identifier: Build_and_Push
+                  spec:
+                    connectorRef: my_docker
+                    image: gcr.io/kaniko-project/executor:v1.23.2-debug
+                    shell: Sh
+                    envVariables:
+                      DOCKER_USER: <+pipeline.variables.imageRegistryUser>
+                      DOCKER_PASS: <+secrets.getValue("docker_password")>
+                    command: |-
+                      set -eu
+                      mkdir -p /kaniko/.docker
+                      AUTH=$(printf '%s:%s' "$DOCKER_USER" "$DOCKER_PASS" | base64 | tr -d '\n')
+                      printf '%s\n' "{\"auths\":{\"https://index.docker.io/v1/\":{\"auth\":\"${AUTH}\"},\"docker.io\":{\"auth\":\"${AUTH}\"}}}" > /kaniko/.docker/config.json
+                      unset DOCKER_PASS AUTH
+                      IMAGE="<+pipeline.variables.image>"
+                      TAG="pr-<+pipeline.variables.prNumber>"
+                      SHA="<+codebase.commitSha>"
+                      echo "Pushing ${IMAGE}:${TAG} and ${IMAGE}:${SHA}"
+                      /kaniko/executor \
+                        --dockerfile=Dockerfile \
+                        --context=dir:///harness \
+                        --destination="${IMAGE}:${TAG}" \
+                        --destination="${IMAGE}:${SHA}" \
+                        --ignore-path=/product_uuid \
+                        --snapshot-mode=redo
+              - step:
+                  type: Run
+                  name: Trivy Image Scan
+                  identifier: Trivy_Image_Scan
+                  spec:
+                    connectorRef: my_docker
+                    image: aquasec/trivy:0.57.1
+                    shell: Sh
+                    envVariables:
+                      DOCKER_USER: <+pipeline.variables.imageRegistryUser>
+                      DOCKER_PASS: <+secrets.getValue("docker_password")>
+                    command: |-
+                      set -eu
+                      mkdir -p /root/.docker
+                      AUTH=$(printf '%s:%s' "$DOCKER_USER" "$DOCKER_PASS" | base64 | tr -d '\n')
+                      printf '%s\n' "{\"auths\":{\"https://index.docker.io/v1/\":{\"auth\":\"${AUTH}\"},\"docker.io\":{\"auth\":\"${AUTH}\"}}}" > /root/.docker/config.json
+                      unset DOCKER_PASS AUTH
+                      REF="<+pipeline.variables.image>:pr-<+pipeline.variables.prNumber>"
+                      echo "Scanning ${REF}"
+                      trivy image --severity CRITICAL --exit-code 1 --no-progress --timeout 10m "${REF}"
+        failureStrategies:
+          - onFailure:
+              errors:
+                - AllErrors
+              action:
+                type: Abort
+    - stage:
+        name: Preview Deploy
+        identifier: Preview_Deploy
+        description: Ephemeral Helm release plus Ingress (class traefik) on Contabo
+        type: CI
+        when:
+          pipelineStatus: Success
+        delegateSelectors:
+          - contabo
+        spec:
+          cloneCodebase: true
+          infrastructure:
+            type: KubernetesDirect
+            spec:
+              connectorRef: contabo_k8s
+              namespace: harness-ci
+              serviceAccountName: harness-games-preview
+              automountServiceAccountToken: true
+              nodeSelector: {}
+              os: Linux
+          execution:
+            steps:
+              - step:
+                  type: Run
+                  name: Helm Preview Deploy
+                  identifier: Helm_Preview_Deploy
+                  spec:
+                    connectorRef: my_docker
+                    image: alpine/k8s:1.37.2
+                    shell: Sh
+                    command: |-
+                      set -eu
+                      APP="<+pipeline.variables.appName>"
+                      PR="<+pipeline.variables.prNumber>"
+                      NS="games-pr-${APP}-${PR}"
+                      RELEASE="${APP}-pr-${PR}"
+                      HOST="${APP}-pr-${PR}.<+pipeline.variables.previewDomain>"
+                      echo "Deploying preview ${RELEASE} -> https://${HOST}"
+                      kubectl create namespace "${NS}" --dry-run=client -o yaml | kubectl apply -f -
+                      helm upgrade --install "${RELEASE}" /harness/charts/${APP} \
+                        --namespace "${NS}" \
+                        --set image.repository="<+pipeline.variables.image>" \
+                        --set image.tag="pr-${PR}" \
+                        --set service.type=ClusterIP \
+                        --set ingress.enabled=true \
+                        --set ingress.className=traefik \
+                        --set ingress.host="${HOST}" \
+                        --wait --timeout 3m
+                      kubectl -n "${NS}" get ingress
+                      echo "Preview URL: https://${HOST}"
+        failureStrategies:
+          - onFailure:
+              errors:
+                - AllErrors
+              action:
+                type: Abort
